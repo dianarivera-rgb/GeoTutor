@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Geotutor</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: "Segoe UI", Roboto, Arial, sans-serif;
+    background: #f1f5f9;
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+  }
+  header {
+    background: linear-gradient(135deg, #0f766e, #0369a1);
+    color: #fff;
+    padding: 12px 16px;
+  }
+  header h1 { font-size: 1.1rem; }
+  header p { font-size: .8rem; opacity: .9; }
+  #chat {
+    flex: 1;
+    overflow-y: auto;
+    padding: 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+  .msg {
+    max-width: 85%;
+    padding: 10px 13px;
+    border-radius: 12px;
+    line-height: 1.45;
+    font-size: .92rem;
+    white-space: pre-wrap;
+    word-wrap: break-word;
+  }
+  .bot { background: #fff; color: #1e293b; align-self: flex-start; border: 1px solid #e2e8f0; }
+  .user { background: #0f766e; color: #fff; align-self: flex-end; }
+  .typing { font-style: italic; color: #64748b; }
+  #suggestions {
+    display: flex; flex-wrap: wrap; gap: 6px; padding: 0 14px 8px;
+  }
+  #suggestions button {
+    border: 1px solid #0f766e; background: #fff; color: #0f766e;
+    border-radius: 16px; padding: 5px 10px; font-size: .78rem; cursor: pointer;
+  }
+  #suggestions button:hover { background: #ccfbf1; }
+  form {
+    display: flex; gap: 8px; padding: 10px;
+    background: #fff; border-top: 1px solid #e2e8f0;
+  }
+  #input {
+    flex: 1; padding: 10px; border: 1px solid #cbd5e1;
+    border-radius: 8px; font-size: .95rem; resize: none;
+  }
+  #input:focus { outline: 2px solid #0f766e; }
+  button.send {
+    background: #0f766e; color: #fff; border: none;
+    border-radius: 8px; padding: 0 18px; cursor: pointer; font-weight: 600;
+  }
+  button.send:disabled { background: #94a3b8; cursor: not-allowed; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>🌍 Geotutor</h1>
+  <p>Apoyo en la enseñanza y aprendizaje de la geografía para docentes en formación</p>
+</header>
+
+<div id="chat"></div>
+
+<div id="suggestions">
+  <button>¿Qué es el espacio geográfico?</button>
+  <button>Diferencia entre escala y región</button>
+  <button>¿Cómo leo una curva de nivel?</button>
+  <button>Ideas para enseñar globalización</button>
+</div>
+
+<form id="form">
+  <input id="input" type="text" placeholder="Escribe tu pregunta de geografía..." autocomplete="off" required>
+  <button class="send" type="submit">Enviar</button>
+</form>
+
+<script>
+/* ==========================================================
+   CONFIGURACIÓN
+   - Deja apiUrl vacío para usar el modo demostración (sin IA).
+   - Para IA real, usa un endpoint compatible con OpenAI
+     (por ejemplo, un proxy propio que guarde la clave en el servidor).
+     NO pongas tu clave API directamente en una página pública.
+   ========================================================== */
+const CONFIG = {
+  apiUrl: "",            // Ej.: "https://tu-proxy.ejemplo.com/api/chat"
+  model: "gpt-4o-mini", // Modelo que use tu proxy
+  nombre: "Geotutor"
+};
+
+const SYSTEM_PROMPT = `Eres Geotutor, un asistente educativo experto en la enseñanza y aprendizaje de la geografía a nivel universitario para docentes en formación.
+Tu propósito es apoyar a los estudiantes en la comprensión de conceptos, el análisis del espacio geográfico y la construcción de conocimientos autónomos.
+Reglas:
+- Responde en español, con claridad y rigor académico.
+- Cuando sea útil, guía con preguntas para que el estudiante construya la respuesta.
+- Relaciona los contenidos con la didáctica de la geografía (secuencias, preguntas guía, actividades en el aula).
+- Si una pregunta no es de geografía o educación geográfica, indica amablemente tu alcance.
+- Recomienda fuentes académicas cuando sea pertinente.`;
+
+const history = [{ role: "system", content: SYSTEM_PROMPT }];
+
+const chat = document.getElementById("chat");
+const form = document.getElementById("form");
+const input = document.getElementById("input");
+const sendBtn = form.querySelector("button");
+
+/* Respuestas de demostración cuando no hay API configurada */
+const DEMO = [
+  { k: ["espacio geográfico"], r: "El espacio geográfico es una construcción social: resulta de la interacción entre la sociedad y la naturaleza a lo largo del tiempo.\n\nPregunta guía: ¿qué elementos naturales y sociales identificas en tu entorno inmediato y cómo se relacionan entre sí?" },
+  { k: ["escala", "región", "region"], r: "Escala: relación entre la distancia en el mapa y la distancia real. Puede ser cartográfica (1:50 000), geográfica (local, regional, global) o de análisis.\n\nRegión: área delimitada por criterios homogéneos (naturales, económicos, culturales) o funcionales.\n\nPregunta guía: ¿qué cambia en tu interpretación de un fenómeno si pasas de la escala local a la global?" },
+  { k: ["curva", "nivel", "relieve"], r: "Las curvas de nivel unen puntos de igual altitud. Cuanto más juntas están, más pronunciada es la pendiente. Si se cierran en círculos concéntricos, indican una elevación; si son cerradas hacia el interior de una depresión, una cuenca.\n\nActividad sugerida: dibuja un perfil topográfico a partir de un mapa con curvas cada 20 m." },
+  { k: ["globalización", "globalizacion"], r: "Propuesta didáctica para globalización:\n1. Activación: ¿qué productos de tu vida diaria provienen de otros países?\n2. Análisis: mapea las cadenas de suministro de un producto.\n3. Discusión: ¿quiénes ganan y quiénes pierden con la globalización?\n4. Producto: mapa conceptual o infografía del caso analizado." }
+];
+
+function demoReply(texto) {
+  const t = texto.toLowerCase();
+  const hit = DEMO.find(d => d.k.some(k => t.includes(k)));
+  return hit ? hit.r :
+    "Modo demostración: aún no hay un modelo de IA conectado.\n\nPuedo orientarte con preguntas: ¿qué concepto geográfico quieres comprender, y qué ya sabes sobre él?";
+}
+
+function addMsg(text, who) {
+  const div = document.createElement("div");
+  div.className = "msg " + who;
+  div.textContent = text;
+  chat.appendChild(div);
+  chat.scrollTop = chat.scrollHeight;
+  return div;
+}
+
+async function askAI(texto) {
+  history.push({ role: "user", content: texto });
+  const res = await fetch(CONFIG.apiUrl, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ model: CONFIG.model, messages: history, temperature: 0.4 })
+  });
+  if (!res.ok) throw new Error("Error del servidor: " + res.status);
+  const data = await res.json();
+  const respuesta = data.choices[0].message.content;
+  history.push({ role: "assistant", content: respuesta });
+  return respuesta;
+}
+
+async function enviar(texto) {
+  if (!texto.trim()) return;
+  addMsg(texto, "user");
+  input.value = "";
+  sendBtn.disabled = true;
+  const typing = addMsg("Geotutor está pensando...", "bot typing");
+
+  try {
+    let respuesta;
+    if (CONFIG.apiUrl) {
+      respuesta = await askAI(texto);
+    } else {
+      await new Promise(r => setTimeout(r, 600));
+      respuesta = demoReply(texto);
+    }
+    typing.remove();
+    addMsg(respuesta, "bot");
+  } catch (err) {
+    typing.remove();
+    addMsg("Lo siento, no pude responder en este momento. Intenta de nuevo más tarde.", "bot");
+    console.error(err);
+  } finally {
+    sendBtn.disabled = false;
+    input.focus();
+  }
+}
+
+form.addEventListener("submit", e => {
+  e.preventDefault();
+  enviar(input.value);
+});
+
+document.getElementById("suggestions").addEventListener("click", e => {
+  if (e.target.tagName === "BUTTON") enviar(e.target.textContent);
+});
+
+addMsg("¡Hola! Soy Geotutor. Puedo ayudarte con conceptos geográficos, análisis espacial y didáctica de la geografía. Te guiaré con preguntas para que construyas tu propio conocimiento. ¿Con qué tema empezamos?", "bot");
+</script>
+</body>
+</html>
